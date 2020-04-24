@@ -27,4 +27,4 @@ Build:
  * docker build -t yolo-detection-api .
 
 Run:
- * docker run -d -p 80:5000 -e IMAGE_SIZE=416 -e CLASS_NAMES=signs -e WEIGHTS_FILE=https://street_signs.zip -e AZURE_STORAGE_CONNECTION_STRING=key -e AZURE_STORAGE_CONTAINER=data yolo-detection-api
+ * docker run -d -p 80:5000 -e IMAGE_SIZE=416 -e CLASS_NAMES=signs -e WEIGHTS_FILE=https://traffic_signs.zip -e AZURE_STORAGE_CONNECTION_STRING=key -e AZURE_STORAGE_CONTAINER=data yolo-detection-api

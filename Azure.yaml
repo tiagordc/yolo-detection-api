@@ -1,0 +1,35 @@
+apiVersion: 2018-10-01
+location: westeurope
+name: detection-api
+properties:
+  containers:
+  - name: app-01
+    properties:
+      image: tiagorcdocker/yolo-detection-api
+      environmentVariables:
+        - name: 'IMAGE_SIZE'
+          value: '416'
+        - name: 'CLASS_NAMES'
+          value: 'signs'
+        - name: 'WEIGHTS_FILE'
+          value: 'https://traffic_signs.zip'
+        - name: 'AZURE_STORAGE_CONNECTION_STRING'
+          value: ''
+        - name: 'AZURE_STORAGE_CONTAINER'
+          value: 'data'
+      resources:
+        requests:
+          cpu: 2.0
+          memoryInGB: 8.0
+          gpu:
+            count: 1
+            sku: K80
+      ports:
+      - port: 5000
+  osType: Linux
+  ipAddress:
+    type: Public
+    ports:
+    - protocol: tcp
+      port: '5000'
+type: Microsoft.ContainerInstance/containerGroups
