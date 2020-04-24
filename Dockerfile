@@ -1,21 +1,18 @@
-FROM python:3.7
+FROM pure/python:3.7-cuda10.2-base
 
-COPY . /app
+# https://github.com/cicdteam/python-cuda/blob/master/10.2/base/Dockerfile
+
+RUN apt-get update && \
+	apt-get install -y --no-install-recommends tesseract-ocr libtesseract-dev git && \
+	mkdir /app && \
+    cd /app && \
+    git clone https://github.com/tiagordc/yolo-detection-api.git . && \
+	pip install --upgrade pip && \
+	pip --no-cache-dir install -r requirements.txt && \
+	apt-get purge --autoremove -y git && \
+	rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
-RUN pip --no-cache-dir install -r requirements.txt
-
-# ssh
-ENV SSH_PASSWD "root:Docker!"
-RUN apt-get update \
-        && apt-get install -y --no-install-recommends dialog \
-        && apt-get update \
-    && apt-get install -y --no-install-recommends openssh-server tesseract-ocr libtesseract-dev \
-    && echo "$SSH_PASSWD" | chpasswd 
-
-COPY ./docker/sshd_config /etc/ssh/
-COPY ./docker/init.sh /usr/local/bin/
-
-RUN chmod u+x /usr/local/bin/init.sh
-EXPOSE 5000 2222
-
-ENTRYPOINT ["init.sh"]
+EXPOSE 5000
+ENTRYPOINT [ "python" ]
+CMD [ "application.py" ]
