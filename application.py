@@ -1,6 +1,7 @@
 import time, cv2, numpy as np, tensorflow as tf, os, random, string, pytesseract, re, urllib, zipfile, io
 from flask import Flask, request, jsonify, abort, send_file, send_from_directory
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
+from azure.cosmosdb.table.tableservice import TableService
 from yolov3_tf2.dataset import transform_images, load_tfrecord_dataset
 from yolov3_tf2.models import YoloV3
 
@@ -8,8 +9,11 @@ IMAGE_SIZE = int(os.environ['IMAGE_SIZE'])
 CLASS_NAMES = os.environ['CLASS_NAMES'].split(',')
 AZURE_CN = os.environ['AZURE_STORAGE_CONNECTION_STRING']
 AZURE_CONTAINER = os.environ['AZURE_STORAGE_CONTAINER']
+AZURE_TABLE = os.environ['AZURE_STORAGE_KEY_TABLE']
+AZURE_PARTITION = os.environ['AZURE_STORAGE_KEY_PARTITION']
 
 blob_service_client = BlobServiceClient.from_connection_string(AZURE_CN)
+table_service = TableService(connection_string=AZURE_CN)
 
 try:
     container_client = blob_service_client.create_container(AZURE_CONTAINER)
@@ -40,6 +44,12 @@ def predict():
 
     if 'key' not in request.headers: abort(404)
     key = request.headers['key']
+
+    try:
+        customer = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
+    except:
+        abort(401)
+    
     rand = "".join(random.sample(string.ascii_lowercase + string.digits, 25)) # generate request id
     images = request.files.getlist("screens")
     if len(images) != 1: abort(404)
@@ -81,6 +91,7 @@ def predict():
         score = np.array(scores[0][i])
         box = np.array(boxes[0][i])
         height, width, channels = cv_img.shape
+        confidence = float("{0:.2f}".format(score * 100))
 
         x = int(float(box[0]) * width)
         y = int(float(box[1]) * height)
@@ -89,22 +100,14 @@ def predict():
         w = r - x
         h = l - y
 
-        # TODO: calculate quadrants
-        quadrants = []
-        
-        current = { 
-            "confidence": float("{0:.2f}".format(score * 100)), 
-            "left": x, 
-            "top": y, 
-            "width": w, 
-            "height": h, 
-            "right": r, 
-            "bottom": l, 
-            "quadrants": quadrants,
-            "url": f'{request.host_url}detection/{key}/{rand}/{i}',
-            "image_width": width,
-            "image_height": height
-        }
+        quadrants = [] # TODO: calculate quadrants
+
+        url = f'{request.host_url}detection/{key}/{rand}/{i}'
+        if 'proxy' in request.headers:
+            proxy = request.headers['proxy'].strip('/')
+            url = f'{proxy}/detection/{key}/{rand}/{i}'
+
+        current = { "confidence": confidence, "left": x, "top": y, "width": w, "height": h, "right": r, "bottom": l, "quadrants": quadrants, "url": url, "image_width": width, "image_height": height }
 
         if ocr_active: 
             

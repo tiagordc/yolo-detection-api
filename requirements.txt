@@ -8,3 +8,4 @@ opencv-python==4.2.0.34
 seaborn==0.10.0
 pytesseract==0.3.3
 azure-storage-blob==12.3.0
+azure-cosmosdb-table==1.0.6
