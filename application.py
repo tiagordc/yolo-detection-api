@@ -19,8 +19,8 @@ try:
     container_client = blob_service_client.create_container(AZURE_CONTAINER)
 except: pass
 
-if not os.path.isfile('./weights/custom.tf.index'):
-    if not os.path.isfile('./weights/custom.zip'):
+if not os.path.isfile('./weights/custom.tf.index'): # if tensorflow file is not present download it 
+    if not os.path.isfile('./weights/custom.zip'): 
         FILE = os.environ['WEIGHTS_FILE']
         urllib.request.urlretrieve(FILE, './weights/custom.zip')
     with zipfile.ZipFile('./weights/custom.zip', 'r') as zip_ref:
@@ -46,7 +46,7 @@ def predict():
     key = request.headers['key']
 
     try:
-        customer = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
+        owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
     except:
         abort(401)
     
@@ -100,7 +100,7 @@ def predict():
         w = r - x
         h = l - y
 
-        quadrants = [] # TODO: calculate quadrants
+        quadrants = [] # TODO: calculate quadrants of the detection on the image
 
         url = f'{request.host_url}detection/{key}/{rand}/{i}'
         if 'proxy' in request.headers:
@@ -114,7 +114,7 @@ def predict():
             crop_img = cv_img[y:l,x:r] # crop image on the detection box
             crop_img = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY) # convert to grayscale
             
-            if ocr_invert: # invert colors
+            if ocr_invert: # simple image thresholding
                 crop_img = cv2.threshold(crop_img, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1] 
             
             try:
@@ -133,12 +133,7 @@ def predict():
 
     process = time.time() - start
 
-    result = { 
-        "id": rand,
-        "detections": response,
-        "detect": detect,
-        "process": process
-    }
+    result = { "id": rand, "detections": response, "detect": detect, "process": process }
 
     try:
         stream = io.BytesIO()
