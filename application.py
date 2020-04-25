@@ -22,7 +22,15 @@ except: pass
 if not os.path.isfile('./weights/custom.tf.index'): # if tensorflow file is not present download it 
     if not os.path.isfile('./weights/custom.zip'): 
         FILE = os.environ['WEIGHTS_FILE']
-        urllib.request.urlretrieve(FILE, './weights/custom.zip')
+        match = re.search("windows.net/([^/]*)/(.*)", FILE, re.IGNORECASE)
+        if match: # file is in private azure container
+            weights_container = match.group(1)
+            weights_file = match.group(2)
+            blob_client = blob_service_client.get_blob_client(container=weights_container, blob=weights_file)
+            with open('./weights/custom.zip', "wb") as download_file:
+                download_file.write(blob_client.download_blob().readall())
+        else:
+            urllib.request.urlretrieve(FILE, './weights/custom.zip')
     with zipfile.ZipFile('./weights/custom.zip', 'r') as zip_ref:
         zip_ref.extractall('./weights/')
 
