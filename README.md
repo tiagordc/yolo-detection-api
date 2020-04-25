@@ -1,8 +1,11 @@
 # yolo-detection-api
 
-Object detection API with optional OCR based in a given trained model
+Object detection API with OCR (optional) based in a given trained model
 
-Using Azure to store debug info
+Also using Azure optionally to:
+ * Store the tensorflow model
+ * Store images and predictions
+ * API key authorization
 
 ## Setup (Windows)
 
