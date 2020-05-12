@@ -134,7 +134,6 @@ def predict():
             except: pass
                 
             text = pytesseract.image_to_string(crop_img, config=ocr_config) # perform OCR
-            text = re.sub(r"(?:[\s])+", " ", text, 0, re.MULTILINE).strip() # remove multiple spaces and trim ?????????
             current["text"] = text
         
         response.append(current)
@@ -168,6 +167,47 @@ def download(key, id, index):
         return send_file(stream, mimetype='image/png')
     except: pass
     abort(404)
+
+@app.route('/ocr', methods=['POST'])
+def ocr():
+
+    if 'key' not in request.headers: abort(404)
+    key = request.headers['key']
+
+    try:
+        owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
+    except:
+        abort(401)
+    
+    rand = "".join(random.sample(string.ascii_lowercase + string.digits, 25)) # generate request id
+    images = request.files.getlist("screens")
+    if len(images) != 1: abort(404)
+
+    image = images[0]
+    image_ext =  os.path.splitext(image.filename)[1]
+    image_name = rand + "_in" + image_ext
+    image_temp = os.path.join(os.getcwd(), 'temp', image_name)
+    image.save(image_temp)
+
+    raw_img = tf.image.decode_image(open(image_temp, 'rb').read(), channels=3)
+    np_img = raw_img.numpy()
+    cv_img = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
+
+    ocr_active = request.headers['ocr'].lower() == 'true' if 'ocr' in request.headers else False
+    ocr_psm = int(request.headers['ocr-psm']) if 'ocr-psm' in request.headers else 7
+    ocr_invert = request.headers['invert'].lower() == 'true' if 'invert' in request.headers else False
+    ocr_config = f'--psm {ocr_psm}'
+
+    if ocr_invert: # simple image thresholding
+        cv_img = cv2.threshold(cv_img, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1] 
+
+    text = pytesseract.image_to_string(cv_img, config=ocr_config)
+    result = { "id": rand, "text": text }
+    
+    try: os.remove(image_temp)
+    except: pass
+
+    return jsonify(result), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

@@ -23,6 +23,7 @@ pip install -r requirements.txt
 ## TODO
 
  * Detection quadrands
+ * Feedback
 
 ## Docker cheat sheet
 
