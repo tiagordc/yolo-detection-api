@@ -20,11 +20,6 @@ pip install -r requirements.txt
  * https://www.youtube.com/watch?v=_UqmgHKdntU
  * https://github.com/theAIGuysCode/Object-Detection-API
  
-## TODO
-
- * Detection quadrands
- * Feedback
-
 ## Docker cheat sheet
 
 Build:

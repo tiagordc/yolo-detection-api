@@ -77,7 +77,8 @@ def predict():
     raw_img = tf.image.decode_image(open(image_temp, 'rb').read(), channels=3)
     np_img = raw_img.numpy()
     cv_img = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
-
+    height, width, channels = cv_img.shape
+    
     img = tf.expand_dims(raw_img, 0)
     img = transform_images(img, IMAGE_SIZE)
 
@@ -90,6 +91,11 @@ def predict():
     ocr_invert = request.headers['invert'].lower() == 'true' if 'invert' in request.headers else False
     ocr_config = f'--psm {ocr_psm}'
 
+    quadrants_x = int(request.headers['qx']) if 'qx' in request.headers else 2
+    quadrants_y = int(request.headers['qy']) if 'qy' in request.headers else 2 
+    quadrants_width = width / quadrants_x
+    quadrants_height = height / quadrants_y
+    
     response = []
     start = time.time()
 
@@ -98,7 +104,6 @@ def predict():
         detection = CLASS_NAMES[int(classes[0][i])]
         score = np.array(scores[0][i])
         box = np.array(boxes[0][i])
-        height, width, channels = cv_img.shape
         confidence = float("{0:.2f}".format(score * 100))
 
         x = int(float(box[0]) * width)
@@ -108,14 +113,24 @@ def predict():
         w = r - x
         h = l - y
 
-        quadrants = [] # TODO: calculate quadrants of the detection on the image
+        q = [] # quadrants
+        q_x = int(x / quadrants_width)
+        q_y = int(y / quadrants_height)
+        q_r = int(r / quadrants_width)
+        q_l = int(l / quadrants_height)
+        current = 0
+        for c_y in range(quadrants_y):
+            for c_x in range(quadrants_x):
+                current += 1
+                if c_x >= q_x and c_x <= q_r and c_y >= q_y and c_y <= q_l:
+                    q.append(current)
 
         url = f'{request.host_url}detection/{key}/{rand}/{i}'
         if 'proxy' in request.headers:
             proxy = request.headers['proxy'].strip('/')
             url = f'{proxy}/detection/{key}/{rand}/{i}'
 
-        current = { "confidence": confidence, "left": x, "top": y, "width": w, "height": h, "right": r, "bottom": l, "quadrants": quadrants, "url": url, "image_width": width, "image_height": height }
+        current = { "confidence": confidence, "left": x, "top": y, "width": w, "height": h, "right": r, "bottom": l, "quadrants": q, "url": url, "image_width": width, "image_height": height }
 
         if ocr_active: 
             
@@ -156,7 +171,7 @@ def predict():
 
     return jsonify(result), 200
 
-@app.route('/detection/<string:key>/<string:id>/<int:index>')
+@app.route('/detection/<string:key>/<string:id>/<int:index>', methods=['GET'])
 def download(key, id, index):
     try:
         blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER, blob=f'{key}/{id}_det_{index}.png')
