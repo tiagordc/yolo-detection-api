@@ -230,8 +230,10 @@ def ocr():
     ocr_config = f'--psm {ocr_psm}'
 
     if ocr_invert: # simple image thresholding
-        cv_img = cv2.threshold(cv_img, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1] 
-
+        try:
+            cv_img = cv2.threshold(cv_img, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1] 
+        except: pass
+        
     text = pytesseract.image_to_string(cv_img, config=ocr_config)
     result = { "id": rand, "text": text }
     
