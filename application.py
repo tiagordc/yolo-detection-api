@@ -98,9 +98,9 @@ def predict():
     boxes, scores, classes, nums = yolo(img)
     detect = time.time() - start
 
-    ocr_active = request.headers['ocr'].lower() == 'true' if 'ocr' in request.headers else False
+    ocr_active = request.headers['ocr'].lower() in ['true', '1'] if 'ocr' in request.headers else False
     ocr_psm = int(request.headers['ocr-psm']) if 'ocr-psm' in request.headers else 7
-    ocr_invert = request.headers['invert'].lower() == 'true' if 'invert' in request.headers else False
+    ocr_invert = request.headers['ocr-invert'].lower() in ['true', '1'] if 'ocr-invert' in request.headers else False
     ocr_config = f'--psm {ocr_psm}'
 
     quadrants_x = int(request.headers['qx']) if 'qx' in request.headers else 2
@@ -225,9 +225,8 @@ def ocr():
     np_img = raw_img.numpy()
     cv_img = cv2.cvtColor(np_img, cv2.COLOR_RGB2BGR)
 
-    ocr_active = request.headers['ocr'].lower() == 'true' if 'ocr' in request.headers else False
-    ocr_psm = int(request.headers['ocr-psm']) if 'ocr-psm' in request.headers else 7
-    ocr_invert = request.headers['invert'].lower() == 'true' if 'invert' in request.headers else False
+    ocr_psm = int(request.headers['psm']) if 'psm' in request.headers else 7
+    ocr_invert = request.headers['invert'].lower() in ['true', '1'] if 'invert' in request.headers else False
     ocr_config = f'--psm {ocr_psm}'
 
     if ocr_invert: # simple image thresholding
