@@ -1,4 +1,4 @@
-import time, cv2, numpy as np, tensorflow as tf, os, random, string, pytesseract, re, urllib, zipfile, io
+import time, cv2, numpy as np, tensorflow as tf, os, random, string, pytesseract, re, urllib, zipfile, io, traceback
 from flask import Flask, request, jsonify, abort, send_file, send_from_directory
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 from azure.cosmosdb.table.tableservice import TableService
@@ -12,32 +12,40 @@ AZURE_CONTAINER = os.environ['AZURE_STORAGE_CONTAINER']
 AZURE_TABLE = os.environ['AZURE_STORAGE_KEY_TABLE']
 AZURE_PARTITION = os.environ['AZURE_STORAGE_KEY_PARTITION']
 
-blob_service_client = BlobServiceClient.from_connection_string(AZURE_CN)
-table_service = TableService(connection_string=AZURE_CN)
+blob_service_client, table_service, yolo = None, None, None
+
+if any(AZURE_CN) and any(AZURE_CONTAINER):
+    blob_service_client = BlobServiceClient.from_connection_string(AZURE_CN)
+    table_service = TableService(connection_string=AZURE_CN)
+    try:
+        container_client = blob_service_client.create_container(AZURE_CONTAINER)
+    except: pass
+
+try: # download tensorflow file
+    if not os.path.isfile('./weights/custom.tf.index'): 
+        if not os.path.isfile('./weights/custom.zip'): 
+            FILE = os.environ['WEIGHTS_FILE']
+            match = re.search("windows.net/([^/]*)/(.*)", FILE, re.IGNORECASE)
+            if match and blob_service_client is not None: # file is in private azure container
+                weights_container = match.group(1)
+                weights_file = match.group(2)
+                blob_client = blob_service_client.get_blob_client(container=weights_container, blob=weights_file)
+                with open('./weights/custom.zip', "wb") as download_file:
+                    download_file.write(blob_client.download_blob().readall())
+            else:
+                urllib.request.urlretrieve(FILE, './weights/custom.zip')
+        with zipfile.ZipFile('./weights/custom.zip', 'r') as zip_ref:
+            zip_ref.extractall('./weights/')
+except Exception:
+    traceback.print_exc()
 
 try:
-    container_client = blob_service_client.create_container(AZURE_CONTAINER)
-except: pass
-
-if not os.path.isfile('./weights/custom.tf.index'): # if tensorflow file is not present download it 
-    if not os.path.isfile('./weights/custom.zip'): 
-        FILE = os.environ['WEIGHTS_FILE']
-        match = re.search("windows.net/([^/]*)/(.*)", FILE, re.IGNORECASE)
-        if match: # file is in private azure container
-            weights_container = match.group(1)
-            weights_file = match.group(2)
-            blob_client = blob_service_client.get_blob_client(container=weights_container, blob=weights_file)
-            with open('./weights/custom.zip', "wb") as download_file:
-                download_file.write(blob_client.download_blob().readall())
-        else:
-            urllib.request.urlretrieve(FILE, './weights/custom.zip')
-    with zipfile.ZipFile('./weights/custom.zip', 'r') as zip_ref:
-        zip_ref.extractall('./weights/')
-
-physical_devices = tf.config.experimental.list_physical_devices('GPU')
-if len(physical_devices) > 0: tf.config.experimental.set_memory_growth(physical_devices[0], True)
-yolo = YoloV3(classes= len(CLASS_NAMES))
-yolo.load_weights('./weights/custom.tf').expect_partial()
+    physical_devices = tf.config.experimental.list_physical_devices('GPU')
+    if len(physical_devices) > 0: tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    yolo = YoloV3(classes= len(CLASS_NAMES))
+    yolo.load_weights('./weights/custom.tf').expect_partial()
+except Exception:
+    traceback.print_exc()
 
 if os.name == 'nt': 
     pytesseract.pytesseract.tesseract_cmd = r'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
@@ -50,17 +58,20 @@ def hello(): return random.choice([':)', ':|', ':(']), 200
 @app.route('/predict', methods=['POST'])
 def predict():
 
-    if 'key' not in request.headers: abort(404)
-    key = request.headers['key']
+    if yolo is None: abort(500, 'No Model')
 
-    try:
-        owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
-    except:
-        abort(401)
+    key = None
+    if table_service is not None:
+        if 'key' not in request.headers: abort(401)
+        key = request.headers['key']
+        try:
+            owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
+        except:
+            abort(401)
     
     rand = "".join(random.sample(string.ascii_lowercase + string.digits, 25)) # generate request id
     images = request.files.getlist("screens")
-    if len(images) != 1: abort(404)
+    if len(images) != 1: abort(500, 'No Data')
 
     image = images[0]
     image_ext =  os.path.splitext(image.filename)[1]
@@ -68,11 +79,12 @@ def predict():
     image_temp = os.path.join(os.getcwd(), 'temp', image_name)
     image.save(image_temp)
 
-    try:
-        image_blob = key + '/' + image_name
-        blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER, blob=image_blob)
-        with open(image_temp, "rb") as data: blob_client.upload_blob(data)
-    except: pass
+    if key is not None:
+        try:
+            image_blob = key + '/' + image_name
+            blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER, blob=image_blob)
+            with open(image_temp, "rb") as data: blob_client.upload_blob(data)
+        except: pass
     
     raw_img = tf.image.decode_image(open(image_temp, 'rb').read(), channels=3)
     np_img = raw_img.numpy()
@@ -113,7 +125,7 @@ def predict():
         w = r - x
         h = l - y
 
-        q = [] # quadrants
+        quadrants = []
         q_x = int(x / quadrants_width)
         q_y = int(y / quadrants_height)
         q_r = int(r / quadrants_width)
@@ -123,14 +135,17 @@ def predict():
             for c_x in range(quadrants_x):
                 current += 1
                 if c_x >= q_x and c_x <= q_r and c_y >= q_y and c_y <= q_l:
-                    q.append(current)
+                    quadrants.append(current)
 
-        url = f'{request.host_url}detection/{key}/{rand}/{i}'
-        if 'proxy' in request.headers:
-            proxy = request.headers['proxy'].strip('/')
-            url = f'{proxy}/detection/{key}/{rand}/{i}'
+        if key is None:
+            url = None
+        else:
+            url = f'{request.host_url}detection/{key}/{rand}/{i}'
+            if 'proxy' in request.headers:
+                proxy = request.headers['proxy'].strip('/')
+                url = f'{proxy}/detection/{key}/{rand}/{i}'
 
-        current = { "confidence": confidence, "left": x, "top": y, "width": w, "height": h, "right": r, "bottom": l, "quadrants": q, "url": url, "image_width": width, "image_height": height }
+        current = { "confidence": confidence, "left": x, "top": y, "width": w, "height": h, "right": r, "bottom": l, "quadrants": quadrants, "url": url, "image_width": width, "image_height": height }
 
         if ocr_active: 
             
@@ -140,13 +155,14 @@ def predict():
             if ocr_invert: # simple image thresholding
                 crop_img = cv2.threshold(crop_img, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1] 
             
-            try:
-                crop_temp = os.path.join(os.getcwd(), 'temp', f'{rand}_det_{i}.png')
-                cv2.imwrite(crop_temp, crop_img)
-                crop_blob = blob_service_client.get_blob_client(container=AZURE_CONTAINER, blob=f'{key}/{rand}_det_{i}.png')
-                with open(crop_temp, "rb") as data: crop_blob.upload_blob(data)
-                os.remove(crop_temp)
-            except: pass
+            if key is not None:
+                try:
+                    crop_temp = os.path.join(os.getcwd(), 'temp', f'{rand}_det_{i}.png')
+                    cv2.imwrite(crop_temp, crop_img)
+                    crop_blob = blob_service_client.get_blob_client(container=AZURE_CONTAINER, blob=f'{key}/{rand}_det_{i}.png')
+                    with open(crop_temp, "rb") as data: crop_blob.upload_blob(data)
+                    os.remove(crop_temp)
+                except: pass
                 
             text = pytesseract.image_to_string(crop_img, config=ocr_config) # perform OCR
             current["text"] = text
@@ -157,13 +173,14 @@ def predict():
 
     result = { "id": rand, "detections": response, "detect": detect, "process": process }
 
-    try:
-        stream = io.BytesIO()
-        stream.write(str(result).encode('utf-8'))
-        stream.seek(0)
-        blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER, blob=f'{key}/{rand}.json')
-        blob_client.upload_blob(stream)
-    except: pass
+    if key is not None:
+        try:
+            stream = io.BytesIO()
+            stream.write(str(result).encode('utf-8'))
+            stream.seek(0)
+            blob_client = blob_service_client.get_blob_client(container=AZURE_CONTAINER, blob=f'{key}/{rand}.json')
+            blob_client.upload_blob(stream)
+        except: pass
 
     try:
         os.remove(image_temp)
@@ -186,13 +203,13 @@ def download(key, id, index):
 @app.route('/ocr', methods=['POST'])
 def ocr():
 
-    if 'key' not in request.headers: abort(404)
-    key = request.headers['key']
-
-    try:
-        owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
-    except:
-        abort(401)
+    if table_service is not None:
+        if 'key' not in request.headers: abort(404)
+        key = request.headers['key']
+        try:
+            owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
+        except:
+            abort(401)
     
     rand = "".join(random.sample(string.ascii_lowercase + string.digits, 25)) # generate request id
     images = request.files.getlist("screens")
