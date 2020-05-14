@@ -1,4 +1,4 @@
-import time, cv2, numpy as np, tensorflow as tf, os, random, string, pytesseract, re, urllib, zipfile, io, traceback
+import time, cv2, numpy as np, tensorflow as tf, os, random, string, pytesseract, re, urllib, zipfile, io, traceback, datetime
 from flask import Flask, request, jsonify, abort, send_file, send_from_directory
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 from azure.cosmosdb.table.tableservice import TableService
@@ -65,7 +65,13 @@ def predict():
         if 'key' not in request.headers: abort(401)
         key = request.headers['key']
         try:
-            owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
+            owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key, timeout=5)
+            predict_count = owner.predict_count if hasattr(owner, 'predict_count') else 0
+            owner['predict_count'] = predict_count + 1
+            owner['predict_last'] = datetime.datetime.utcnow().isoformat() + '0Z'
+            if hasattr(owner, 'etag'): del owner.etag
+            if hasattr(owner, 'Timestamp'): del owner.Timestamp
+            table_service.update_entity(AZURE_TABLE, owner)
         except:
             abort(401)
     
@@ -207,7 +213,13 @@ def ocr():
         if 'key' not in request.headers: abort(404)
         key = request.headers['key']
         try:
-            owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key)
+            owner = table_service.get_entity(AZURE_TABLE, AZURE_PARTITION, key, timeout=5)
+            ocr_count = owner.ocr_count if hasattr(owner, 'ocr_count') else 0
+            owner['ocr_count'] = ocr_count + 1
+            owner['ocr_last'] = datetime.datetime.utcnow().isoformat() + '0Z'
+            if hasattr(owner, 'etag'): del owner.etag
+            if hasattr(owner, 'Timestamp'): del owner.Timestamp
+            table_service.update_entity(AZURE_TABLE, owner)
         except:
             abort(401)
     
